@@ -1,10 +1,22 @@
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
+import time
 
 # GLOBAL VARIABLES
 W_Width, W_Height = 500, 500
 bg_color = (0, 0, 0, 0)
+
+# Spaceship related
+spaceship_x, spaceship_y = 0, -230  # position
+spaceship_width, spaceship_height = 40, 20
+
+# Bullets/projectiles
+projectiles = []  # List of dictionaries for projectiles
+projectile_speed = 350
+
+# Timing
+last_time = time.time()  # Initialize with the current time
 
 # DRAWING ALGORITHMS
 
@@ -131,7 +143,93 @@ def plot_circle_points(cx, cy, x, y):
     glVertex2i(int(cx + y), int(cy - x))  # Octant 7
     glVertex2i(int(cx + x), int(cy - y))
 
+# GAME OBJECTS
+
+## Space Ship
+def drawSpaceship():
+    global spaceship_x, spaceship_y, spaceship_width, spaceship_height
+    # Common values
+    half_width = spaceship_width // 2
+    left_x = spaceship_x - half_width
+    right_x = spaceship_x + half_width
+    bottom_y = spaceship_y + spaceship_height
+    top_y = spaceship_y + spaceship_height + 20
+
+    # Colors for different parts
+    body_color = (0.2, 0.2, 1.0)
+    wing_color = (1.0, 1.0, 1.0)
+    cockpit_color = (0.0, 1.0, 0.0)
+    exhaust_color = (1.0, 0.5, 0.0)
+
+    # Outline size in pixels
+    glPointSize(3)
+    # Draw the triangular wings
+    glColor3f(*wing_color)
+    drawLine(left_x, spaceship_y, spaceship_x, top_y)  # Left wing
+    drawLine(right_x, spaceship_y, spaceship_x, top_y)  # Right wing
+
+    # Draw the body (rectangular base)
+    glColor3f(*body_color)
+    drawLine(left_x, spaceship_y, right_x, spaceship_y)
+    drawLine(left_x, spaceship_y, left_x, bottom_y)
+    drawLine(right_x, spaceship_y, right_x, bottom_y)
+    drawLine(left_x, bottom_y, right_x, bottom_y)
+
+    # Draw the cockpit (circle at the top)
+    glColor3f(*cockpit_color)
+    drawCircle(8, spaceship_x, top_y + 10)
+
+    # Draw two exhausts (circles at the bottom)
+    glColor3f(*exhaust_color)
+    drawCircle(6, left_x + 10, spaceship_y - 10)
+    drawCircle(6, right_x - 10, spaceship_y - 10)
+
+    glPointSize(1)
+
+## Bullets/Projectiles
+def shootProjectile():
+    projectiles.append({'x': spaceship_x, 'y': spaceship_y})
+
+def updateProjectiles(delta_time):
+    for projectile in projectiles[:]:
+        # Move the projectile upward
+        projectile['y'] += projectile_speed * delta_time
+
+        # Remove projectile if it goes off the top of the screen
+        if projectile['y'] > W_Height // 2:
+            projectiles.remove(projectile)
+
+def drawProjectiles():
+    for projectile in projectiles:
+        glColor3f(0, 1, 0)
+        drawCircle(5, projectile['x'], projectile['y'])
+
+# Input listener functions
+def keyboardListener(key, x, y):
+    global spaceship_x
+
+    move_speed = 10  # Adjust this value to control spaceship movement
+
+    if key == b'a':  # Move spaceship left
+        spaceship_x = max(spaceship_x - move_speed, -W_Width // 2 + spaceship_width // 2)
+    elif key == b'd':  # Move spaceship right
+        spaceship_x = min(spaceship_x + move_speed, W_Width // 2 - spaceship_width // 2)
+    elif key == b' ':  # Spacebar to shoot
+        shootProjectile()
+
+    glutPostRedisplay()
+
 # OpenGL related functions
+def animate():
+    global last_time
+
+    current_time = time.time()
+    delta_time = current_time - last_time
+    last_time = current_time
+
+    updateProjectiles(delta_time)
+    glutPostRedisplay()
+
 def display():
     global bg_color
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -140,19 +238,9 @@ def display():
     glLoadIdentity()
     gluLookAt(0, 0, 200, 0, 0, 0, 0, 1, 0)
 
-    # Draw a line in zone 0 and a line in zone 3
-    glPointSize(3)
-    glColor3f(1.0, 1.0, 1.0)
-    drawLine(-150, -100, 150, 100)
-    glColor3f(0.0, 1.0, 1.0)
-    drawLine(150, -100, -150, 100)
-
-    # Draw two circles
-    glColor3f(0.0, 1.0, 0.0)
-    drawCircle(80, 0, 0)
-    glColor3f(1.0, 0.5, 0.0)
-    drawCircle(40, -150, 100)
-    glPointSize(1)
+    # Draw game objects
+    drawSpaceship()
+    drawProjectiles()
 
     glutSwapBuffers()
 
@@ -174,9 +262,11 @@ glutInitWindowSize(W_Width, W_Height)
 glutInitWindowPosition(0, 0)
 glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGB)  # Depth buffer, double buffer, RGB color
 
-wind = glutCreateWindow(b"Lab 2: Midpoint Line and Circle Drawing")
+wind = glutCreateWindow(b"Lab 2: Spaceship and Shooting")
 init()
 
 glutDisplayFunc(display)  # Display callback
+glutIdleFunc(animate)  # Idle callback
+glutKeyboardFunc(keyboardListener)
 
 glutMainLoop()  # Start the GLUT event loop
