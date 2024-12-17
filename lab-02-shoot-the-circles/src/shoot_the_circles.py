@@ -1,6 +1,7 @@
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
+import random
 import time
 
 # GLOBAL VARIABLES
@@ -11,12 +12,22 @@ bg_color = (0, 0, 0, 0)
 spaceship_x, spaceship_y = 0, -230  # position
 spaceship_width, spaceship_height = 40, 20
 
+# Falling circles
+falling_circles = []  # List of dictionaries for falling circles
+circle_spawn_timer = 0  # Timer to control circle spawning
+last_time = time.time()  # Initialize with the current time
+
 # Bullets/projectiles
 projectiles = []  # List of dictionaries for projectiles
 projectile_speed = 350
 
-# Timing
-last_time = time.time()  # Initialize with the current time
+# Scores
+missed_circles = 0  # Count missed circles
+miss_fires = 0  # Count miss fires
+score = 0  # Player score
+
+# Game state
+game_over = False  # Flag to check if the game is over
 
 # DRAWING ALGORITHMS
 
@@ -188,9 +199,13 @@ def drawSpaceship():
 
 ## Bullets/Projectiles
 def shootProjectile():
-    projectiles.append({'x': spaceship_x, 'y': spaceship_y})
+    if not game_over:
+        # Add a new projectile at the current spaceship position
+        projectiles.append({'x': spaceship_x, 'y': spaceship_y})
 
 def updateProjectiles(delta_time):
+    global projectiles, miss_fires, game_over, projectile_speed
+
     for projectile in projectiles[:]:
         # Move the projectile upward
         projectile['y'] += projectile_speed * delta_time
@@ -198,36 +213,174 @@ def updateProjectiles(delta_time):
         # Remove projectile if it goes off the top of the screen
         if projectile['y'] > W_Height // 2:
             projectiles.remove(projectile)
+            miss_fires += 1
+            print('Miss fired! Total misfires:', miss_fires)
+            if miss_fires >= 3:
+                endGame("You misfired too many times!")  # End the game after 3 misfires
+                return
 
 def drawProjectiles():
     for projectile in projectiles:
         glColor3f(0, 1, 0)
         drawCircle(5, projectile['x'], projectile['y'])
 
+## Falling circles
+def createFallingCircle():
+    global falling_circles
+    x = random.randint(-W_Width // 2 + 20, W_Width // 2 - 20)
+    y = W_Height // 2
+    unique = random.choice([True, False])  # unique circles time to time
+
+    if unique:
+        radius = 25
+    else:
+        radius = 20
+
+    speed = 50
+    pulse_direction = 1  # 1 = expanding, -1 = shrinking
+    pulse_speed = 0.01
+
+    falling_circles.append({
+        'x': x, 'y': y, 'radius': radius, 'speed': speed,
+        'unique': unique, 'pulse_direction': pulse_direction, 'pulse_speed': pulse_speed
+    })
+
+def updateFallingCircles(delta_time):
+    global falling_circles, missed_circles, game_over
+
+    for circle in falling_circles[:]:
+        # Move the circle down
+        circle['y'] -= circle['speed'] * delta_time
+
+        # Unique circle pulsing animation
+        if circle['unique']:
+            circle['radius'] += circle['pulse_direction'] * circle['pulse_speed']
+            # Reverse direction if the radius reaches limits
+            if circle['radius'] >= 25:  # Maximum size
+                circle['pulse_direction'] = -1
+            elif circle['radius'] <= 15:  # Minimum size
+                circle['pulse_direction'] = 1
+
+        # Check if the circle touches the spaceship
+        if hasCollidedWithSpaceship(circle):
+            endGame("A circle touched the spaceship!")  # End the game immediately
+            return
+
+        # Check if the circle is missed (crosses the bottom boundary)
+        if circle['y'] < -W_Height // 2:
+            falling_circles.remove(circle)
+            missed_circles += 1
+            print("Missed a circle! Total missed:", missed_circles)
+            if missed_circles >= 3:
+                endGame("Missed too many circles!")  # End the game after 3 misses
+                return
+
+def drawFallingCircles():
+    glPointSize(3)
+    for circle in falling_circles:
+        if circle['unique']:
+            glColor3f(0.0, 1.0, 1.0)
+        else:
+            glColor3f(1.0, 0.5, 0.0)
+        drawCircle(circle['radius'], circle['x'], circle['y'])  # Draw the circle
+    glPointSize(1)
+
+def endGame(reason):
+    global game_over, falling_circles, projectiles
+    game_over = True  # Set the game_over flag to True
+    falling_circles.clear()  # Clear all falling circles
+    projectiles.clear()  # Clear all projectiles
+    print(f"Game Over: {reason}")  # Print the reason for the game ending
+    print(f"Final Score: {score}")
+
+# HELPER FUNCTIONS
+
+## Collision detection
+def hasCollidedWithSpaceship(circle):
+    global spaceship_x, spaceship_y, spaceship_width, spaceship_height
+
+    # Bounding box for the spaceship
+    spaceship_box = {
+        'x': spaceship_x - spaceship_width // 2,
+        'y': spaceship_y,
+        'width': spaceship_width,
+        'height': spaceship_height
+    }
+
+    # Bounding box for the circle
+    circle_box = {
+        'x': circle['x'] - circle['radius'],
+        'y': circle['y'] - circle['radius'],
+        'width': 2 * circle['radius'],
+        'height': 2 * circle['radius']
+    }
+
+    # AABB collision detection
+    return (
+        spaceship_box['x'] < circle_box['x'] + circle_box['width'] and
+        spaceship_box['x'] + spaceship_box['width'] > circle_box['x'] and
+        spaceship_box['y'] < circle_box['y'] + circle_box['height'] and
+        spaceship_box['y'] + spaceship_box['height'] > circle_box['y']
+    )
+
+def hasCollided(circle, projectile):
+    circle_box = {'x': circle['x'] - circle['radius'], 'y': circle['y'] - circle['radius'],
+                  'width': 2 * circle['radius'], 'height': 2 * circle['radius']}
+    projectile_box = {'x': projectile['x'] - 2, 'y': projectile['y'] - 2, 'width': 4, 'height': 4}
+    return (circle_box['x'] < projectile_box['x'] + projectile_box['width'] and
+            circle_box['x'] + circle_box['width'] > projectile_box['x'] and
+            circle_box['y'] < projectile_box['y'] + projectile_box['height'] and
+            circle_box['y'] + circle_box['height'] > projectile_box['y'])
+
+def checkCollisions():
+    global falling_circles, projectiles, score
+    for circle in falling_circles[:]:
+        for projectile in projectiles[:]:
+            if hasCollided(circle, projectile):
+                falling_circles.remove(circle)
+                projectiles.remove(projectile)
+                score += 5 if circle['unique'] else 1
+                print("Score:", score)
+
 # Input listener functions
 def keyboardListener(key, x, y):
-    global spaceship_x
+    global spaceship_x, W_Width, spaceship_width, game_over
 
     move_speed = 10  # Adjust this value to control spaceship movement
 
-    if key == b'a':  # Move spaceship left
-        spaceship_x = max(spaceship_x - move_speed, -W_Width // 2 + spaceship_width // 2)
-    elif key == b'd':  # Move spaceship right
-        spaceship_x = min(spaceship_x + move_speed, W_Width // 2 - spaceship_width // 2)
-    elif key == b' ':  # Spacebar to shoot
-        shootProjectile()
+    if not game_over:
+        if key == b'a':  # Move spaceship left
+            spaceship_x = max(spaceship_x - move_speed, -W_Width // 2 + spaceship_width // 2)
+        elif key == b'd':  # Move spaceship right
+            spaceship_x = min(spaceship_x + move_speed, W_Width // 2 - spaceship_width // 2)
+        elif key == b' ':  # Spacebar to shoot
+            shootProjectile()
 
     glutPostRedisplay()
 
 # OpenGL related functions
 def animate():
-    global last_time
+    global last_time, circle_spawn_timer
 
     current_time = time.time()
-    delta_time = current_time - last_time
-    last_time = current_time
 
-    updateProjectiles(delta_time)
+    if not game_over:
+        # Calculate delta_time only when the game is running
+        delta_time = current_time - last_time
+        last_time = current_time  # Update last_time only when the game is running
+
+        circle_spawn_timer += delta_time
+        if circle_spawn_timer > 2:  # Spawn a new circle every 2 seconds
+            createFallingCircle()
+            circle_spawn_timer = 0
+
+        updateFallingCircles(delta_time)
+        updateProjectiles(delta_time)
+        checkCollisions()
+    else:
+        # Keep the timer current while the game is over
+        last_time = current_time
+
     glutPostRedisplay()
 
 def display():
@@ -240,6 +393,7 @@ def display():
 
     # Draw game objects
     drawSpaceship()
+    drawFallingCircles()
     drawProjectiles()
 
     glutSwapBuffers()
@@ -262,7 +416,7 @@ glutInitWindowSize(W_Width, W_Height)
 glutInitWindowPosition(0, 0)
 glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGB)  # Depth buffer, double buffer, RGB color
 
-wind = glutCreateWindow(b"Lab 2: Spaceship and Shooting")
+wind = glutCreateWindow(b"Lab 2: Shoot the Circles")
 init()
 
 glutDisplayFunc(display)  # Display callback
