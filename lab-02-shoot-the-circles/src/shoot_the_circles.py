@@ -28,9 +28,13 @@ score = 0  # Player score
 
 # Game state
 game_over = False  # Flag to check if the game is over
+paused = True  # Pause state
+
+# On-screen buttons
+button_width, button_height = 40, 40
+button_positions = [(-240, 200), (-20, 200), (200, 200)]  # restart, play/pause, quit game
 
 # DRAWING ALGORITHMS
-
 ## Midpoint Line Drawing
 def find_zone(dx, dy):
     if abs(dx) >= abs(dy):  # Slope <= 1
@@ -50,7 +54,7 @@ def find_zone(dx, dy):
         elif dx < 0 and dy < 0:
             return 5  # Zone 5
         elif dx >= 0 and dy < 0:
-            return 6
+            return 6  # Zone 6
 
 def drawLine(x1, y1, x2, y2):
     dx = x2 - x1
@@ -152,10 +156,9 @@ def plot_circle_points(cx, cy, x, y):
     glVertex2i(int(cx - x), int(cy - y))  # Octant 5
     glVertex2i(int(cx - y), int(cy - x))  # Octant 6
     glVertex2i(int(cx + y), int(cy - x))  # Octant 7
-    glVertex2i(int(cx + x), int(cy - y))
+    glVertex2i(int(cx + x), int(cy - y))  # Octant 0
 
 # GAME OBJECTS
-
 ## Space Ship
 def drawSpaceship():
     global spaceship_x, spaceship_y, spaceship_width, spaceship_height
@@ -197,9 +200,10 @@ def drawSpaceship():
 
     glPointSize(1)
 
+
 ## Bullets/Projectiles
 def shootProjectile():
-    if not game_over:
+    if not game_over and not paused:
         # Add a new projectile at the current spaceship position
         projectiles.append({'x': spaceship_x, 'y': spaceship_y})
 
@@ -223,6 +227,7 @@ def drawProjectiles():
     for projectile in projectiles:
         glColor3f(0, 1, 0)
         drawCircle(5, projectile['x'], projectile['y'])
+
 
 ## Falling circles
 def createFallingCircle():
@@ -285,16 +290,79 @@ def drawFallingCircles():
         drawCircle(circle['radius'], circle['x'], circle['y'])  # Draw the circle
     glPointSize(1)
 
+## On-screen buttons
+def drawButtons():
+    # Restart Button (Left Arrow)
+    glColor3f(0.0, 1.0, 1.0)  # Cyan color for the arrow
+    arrow_x, arrow_y = button_positions[0]
+    drawLine(arrow_x, arrow_y + 20, arrow_x + 15, arrow_y + 30)  # Top diagonal line
+    drawLine(arrow_x, arrow_y + 20, arrow_x + 15, arrow_y + 10)  # Bottom diagonal line
+    drawLine(arrow_x, arrow_y + 20, arrow_x + 30, arrow_y + 20)  # Horizontal line
+
+    # Play/Pause Button (Amber Triangle)
+    glColor3f(1.0, 0.5, 0.0)  # Amber color
+    play_x, play_y = button_positions[1]
+    drawLine(play_x + 10, play_y + 10, play_x + 30, play_y + 20)  # Left side of triangle
+    drawLine(play_x + 30, play_y + 20, play_x + 10, play_y + 30)  # Right side of triangle
+    drawLine(play_x + 10, play_y + 30, play_x + 10, play_y + 10)  # Base of triangle
+
+    # Exit Button (Red Cross)
+    glColor3f(1.0, 0.0, 0.0)  # Red color
+    cross_x, cross_y = button_positions[2]
+    drawLine(cross_x + 10, cross_y + 10, cross_x + 30, cross_y + 30)  # Diagonal 1
+    drawLine(cross_x + 10, cross_y + 30, cross_x + 30, cross_y + 10)  # Diagonal 2
+
+
+def handleButtonClick(x, y):
+    global paused, game_over
+
+    # Convert from OpenGL coordinates to game coordinates
+    x = int(x - W_Width / 2)
+    y = int(W_Height / 2 - y)
+
+    # Restart Button (Left Arrow)
+    if button_positions[0][0] <= x <= button_positions[0][0] + button_width and \
+       button_positions[0][1] <= y <= button_positions[0][1] + button_height:
+        restartGame()
+
+    # Play/Pause Button (Amber Color)
+    elif button_positions[1][0] <= x <= button_positions[1][0] + button_width and \
+         button_positions[1][1] <= y <= button_positions[1][1] + button_height:
+        togglePause()
+
+    # Exit Button (Red Color)
+    elif button_positions[2][0] <= x <= button_positions[2][0] + button_width and \
+         button_positions[2][1] <= y <= button_positions[2][1] + button_height:
+        print(f"Goodbye! Final Score: {score}")
+        glutLeaveMainLoop()
+
+def restartGame():
+    global falling_circles, projectiles, missed_circles, score, game_over, paused
+    falling_circles.clear()
+    projectiles.clear()
+    missed_circles = 0
+    score = 0
+    game_over = False
+    paused = False
+    print("Starting Over!")
+
+def togglePause():
+    global paused
+    paused = not paused
+    if paused:
+        print("Game Paused!")
+    else:
+        print("Game Resumed!")
+
 def endGame(reason):
     global game_over, falling_circles, projectiles
     game_over = True  # Set the game_over flag to True
     falling_circles.clear()  # Clear all falling circles
     projectiles.clear()  # Clear all projectiles
     print(f"Game Over: {reason}")  # Print the reason for the game ending
-    print(f"Final Score: {score}")
+    print(f"Final Score: {score}")  # Display the final score
 
 # HELPER FUNCTIONS
-
 ## Collision detection
 def hasCollidedWithSpaceship(circle):
     global spaceship_x, spaceship_y, spaceship_width, spaceship_height
@@ -323,6 +391,7 @@ def hasCollidedWithSpaceship(circle):
         spaceship_box['y'] + spaceship_box['height'] > circle_box['y']
     )
 
+
 def hasCollided(circle, projectile):
     circle_box = {'x': circle['x'] - circle['radius'], 'y': circle['y'] - circle['radius'],
                   'width': 2 * circle['radius'], 'height': 2 * circle['radius']}
@@ -342,13 +411,19 @@ def checkCollisions():
                 score += 5 if circle['unique'] else 1
                 print("Score:", score)
 
+
 # Input listener functions
+def mouseListener(button, state, x, y):
+    if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+        handleButtonClick(x, y)
+    glutPostRedisplay()
+
 def keyboardListener(key, x, y):
-    global spaceship_x, W_Width, spaceship_width, game_over
+    global spaceship_x, W_Width, spaceship_width, paused, game_over
 
     move_speed = 10  # Adjust this value to control spaceship movement
 
-    if not game_over:
+    if not paused and not game_over:
         if key == b'a':  # Move spaceship left
             spaceship_x = max(spaceship_x - move_speed, -W_Width // 2 + spaceship_width // 2)
         elif key == b'd':  # Move spaceship right
@@ -364,10 +439,10 @@ def animate():
 
     current_time = time.time()
 
-    if not game_over:
+    if not paused and not game_over:
         # Calculate delta_time only when the game is running
         delta_time = current_time - last_time
-        last_time = current_time  # Update last_time only when the game is running
+        last_time = current_time  # Update last_time only when not paused
 
         circle_spawn_timer += delta_time
         if circle_spawn_timer > 2:  # Spawn a new circle every 2 seconds
@@ -378,7 +453,7 @@ def animate():
         updateProjectiles(delta_time)
         checkCollisions()
     else:
-        # Keep the timer current while the game is over
+        # Keep the timer current while the game is paused
         last_time = current_time
 
     glutPostRedisplay()
@@ -395,6 +470,7 @@ def display():
     drawSpaceship()
     drawFallingCircles()
     drawProjectiles()
+    drawButtons()
 
     glutSwapBuffers()
 
@@ -416,11 +492,12 @@ glutInitWindowSize(W_Width, W_Height)
 glutInitWindowPosition(0, 0)
 glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGB)  # Depth buffer, double buffer, RGB color
 
-wind = glutCreateWindow(b"Lab 2: Shoot the Circles")
+wind = glutCreateWindow(b"Assignment 2: Shoot The Circles!")
 init()
 
 glutDisplayFunc(display)  # Display callback
 glutIdleFunc(animate)  # Idle callback
+glutMouseFunc(mouseListener)
 glutKeyboardFunc(keyboardListener)
 
 glutMainLoop()  # Start the GLUT event loop
